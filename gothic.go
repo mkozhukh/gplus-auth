@@ -1,9 +1,8 @@
-package auth
+package login
 
 /*
 https://github.com/markbates/goth/tree/master/gothic
 
-- gorilla.mux replaced with chi.URLParam
 - gorilla.session replaced with scs
 */
 
@@ -22,7 +21,6 @@ import (
 	"time"
 
 	"github.com/alexedwards/scs"
-	"github.com/go-chi/chi"
 	"github.com/markbates/goth"
 )
 
@@ -44,8 +42,8 @@ for the requested provider.
 
 See https://github.com/markbates/goth/examples/main.go to see this in action.
 */
-func beginAuthHandler(res http.ResponseWriter, req *http.Request) {
-	url, err := getAuthURL(res, req)
+func beginAuthHandler(res http.ResponseWriter, req *http.Request, name string) {
+	url, err := getAuthURL(res, req, name)
 	if err != nil {
 		res.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintln(res, err)
@@ -94,12 +92,7 @@ as either "provider" or ":provider".
 I would recommend using the BeginAuthHandler instead of doing all of these steps
 yourself, but that's entirely up to you.
 */
-func getAuthURL(res http.ResponseWriter, req *http.Request) (string, error) {
-	providerName, err := getProviderName(req)
-	if err != nil {
-		return "", err
-	}
-
+func getAuthURL(res http.ResponseWriter, req *http.Request, providerName string) (string, error) {
 	provider, err := goth.GetProvider(providerName)
 	if err != nil {
 		return "", err
@@ -132,13 +125,8 @@ as either "provider" or ":provider".
 
 See https://github.com/markbates/goth/examples/main.go to see this in action.
 */
-var completeUserAuth = func(res http.ResponseWriter, req *http.Request) (goth.User, error) {
-	defer logout(res, req)
-
-	providerName, err := getProviderName(req)
-	if err != nil {
-		return goth.User{}, err
-	}
+var completeUserAuth = func(res http.ResponseWriter, req *http.Request, providerName string) (goth.User, error) {
+	defer logout(res, req, providerName)
 
 	provider, err := goth.GetProvider(providerName)
 	if err != nil {
@@ -203,29 +191,16 @@ func validateState(req *http.Request, sess goth.Session) error {
 }
 
 // Logout invalidates a user session.
-func logout(res http.ResponseWriter, req *http.Request) error {
+func logout(res http.ResponseWriter, req *http.Request, name string) error {
 	session := store.Load(req)
 
-	name, err := getProviderName(req)
-	if err != nil {
-		return errors.New("Can't detect provider")
-	}
+	err := session.Remove(res, name)
 
-	err = session.Remove(res, name)
 	if err != nil {
 		return errors.New("Could not delete user session ")
 	}
+
 	return nil
-}
-
-func getProviderName(req *http.Request) (string, error) {
-	// try to get it from the context's value of "provider" key
-	if p := chi.URLParam(req, "provider"); p != "" {
-		return p, nil
-	}
-
-	// if not found then return an empty string with the corresponding error
-	return "", errors.New("you must select a provider")
 }
 
 func storeInSession(key string, value string, req *http.Request, res http.ResponseWriter) error {
